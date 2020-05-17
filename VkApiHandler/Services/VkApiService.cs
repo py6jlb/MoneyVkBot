@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -16,13 +17,21 @@ namespace VkApiHandler.Services
 {
     public class VkApiService : IVkApiService
     {
+        private readonly ChannelReader<GroupUpdate> _channelReader;
+        private readonly ChannelWriter<GroupUpdate> _channelWriter;
         private readonly ILogger<VkApiService> _logger;
         private readonly VkApi _vkApi;
         private readonly IMessageService _sendMessageService;
         private readonly ulong _groupId;
 
-        public VkApiService(VkApi vkApi, IConfiguration config, IMessageService sendMessageService, ILogger<VkApiService> logger)
+        public VkApiService(VkApi vkApi, 
+            IConfiguration config, 
+            IMessageService sendMessageService, 
+            ILogger<VkApiService> logger, 
+            Channel<GroupUpdate> channel)
         {
+            _channelReader = channel.Reader;
+            _channelWriter = channel.Writer;
             _logger = logger;
             _vkApi = vkApi;
             _sendMessageService = sendMessageService;
@@ -30,19 +39,31 @@ namespace VkApiHandler.Services
             _groupId = ulong.Parse(groupId);
         }
 
-        public async Task RunLongPoolingTask(CancellationToken stoppingToken)
+        public async Task CheckUpdates()
         {
-            while (!stoppingToken.IsCancellationRequested)
+            var history = await GetHistoryAsync();
+            var updates = GetHistoryUpdates(history);
+
+            if (updates != null && updates.Any())
             {
-                var history = await GetHistoryAsync();
-                var updates = GetHistoryUpdates(history);
-
-                if (updates == null || !updates.Any()) continue;
-
-                var _ = Task.Run(()=> HandleUpdates(updates));
+                foreach (var update in updates)
+                {
+                    await _channelWriter.WriteAsync(update);
+                }
             }
         }
-        
+
+        public async Task HandleUpdates(CancellationToken stoppingToken)
+        {
+            while (await _channelReader.WaitToReadAsync()  && !stoppingToken.IsCancellationRequested)
+            {
+                if (_channelReader.TryRead(out var msg))
+                {
+                    await DispatchUpdates(msg);
+                }
+            }
+        }
+
         public async Task<BotsLongPollHistoryResponse> GetHistoryAsync()
         {
             var connection = await _vkApi.Groups.GetLongPollServerAsync(_groupId);
@@ -51,13 +72,13 @@ namespace VkApiHandler.Services
             return history;
         }
 
-        public async Task HandleUpdates(IEnumerable<GroupUpdate> updates)
-        {
-            foreach (var update in updates)
-            {
-                await DispatchUpdates(update);
-            }
-        }
+        //public async Task HandleUpdates(IEnumerable<GroupUpdate> updates)
+        //{
+        //    foreach (var update in updates)
+        //    {
+        //        await DispatchUpdates(update);
+        //    }
+        //}
 
         private BotsLongPollHistoryParams GetHistoryParams(LongPollServerResponse connection)
         {

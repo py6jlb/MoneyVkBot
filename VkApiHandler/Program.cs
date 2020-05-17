@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,6 +10,7 @@ using VkApiHandler.Services;
 using VkApiHandler.Services.Abstractions;
 using VkNet;
 using VkNet.Model;
+using VkNet.Model.GroupUpdate;
 
 namespace VkApiHandler
 {
@@ -27,6 +29,7 @@ namespace VkApiHandler
                 {
                     option.ShutdownTimeout = TimeSpan.FromSeconds(35);
                 });
+                services.AddSingleton(sp => Channel.CreateUnbounded<GroupUpdate>());
                 services.AddSingleton(sp => {
                     var config = sp.GetService<IConfiguration>();
                     var token = config["VK_BOT_TOKEN"] ?? throw new ArgumentNullException("token", "Параметр не может быть null, проверьте перменные окружения.");
@@ -37,7 +40,8 @@ namespace VkApiHandler
                 services.AddTransient<IVkApiService, VkApiService>();
                 services.AddTransient<IMessageService, MessageService>();
                 services.AddTransient<IKeyboardService, KeyboardService>();
-                services.AddHostedService<BotService>();
+                services.AddHostedService<UpdateMonitoringService>();
+                services.AddHostedService<HandleUpdateService>();
             });
     }
 }

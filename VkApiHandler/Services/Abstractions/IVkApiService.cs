@@ -8,8 +8,9 @@ namespace VkApiHandler.Services.Abstractions
 {
     public interface IVkApiService
     {
-        Task RunLongPoolingTask(CancellationToken stoppingToken);
+        Task CheckUpdates();
         Task<BotsLongPollHistoryResponse> GetHistoryAsync();
-        Task HandleUpdates(IEnumerable<GroupUpdate> updates);
+        Task HandleUpdates(CancellationToken stoppingToken);
+        //Task HandleUpdates(IEnumerable<GroupUpdate> updates);
     }
 }
